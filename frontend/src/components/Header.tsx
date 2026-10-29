@@ -16,6 +16,7 @@ export function Header({ healthy, onNav }: { healthy: boolean | null; onNav: (ta
         <button onClick={() => onNav('validation')}>验证集</button>
         <button onClick={() => onNav('architecture')}>架构与 React 设计</button>
         <button onClick={() => onNav('design')}>方案与设计物料</button>
+        <button onClick={() => onNav('model')}>模型配置</button>
       </nav>
       <span className={`health ${healthy === null ? '' : healthy ? 'ok' : 'bad'}`} aria-live="polite">
         {healthy === null ? '正在检测后端…' : healthy ? '● 后端在线' : '● 后端未启动'}

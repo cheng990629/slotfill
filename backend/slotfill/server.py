@@ -18,6 +18,7 @@ from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from urllib.parse import urlparse
 
 from .config import AppConfig
+from .model_config import public_config, save_config, test_connection
 from .service import JobStore, run_job_sync, submit_job
 
 
@@ -46,6 +47,8 @@ def make_handler(store: JobStore, app_cfg: AppConfig):
             path = urlparse(self.path).path
             if path == "/health":
                 return self._send(200, {"status": "ok"})
+            if path == "/api/v1/config":
+                return self._send(200, public_config())
             if path.startswith("/api/v1/jobs/"):
                 job_id = path.rsplit("/", 1)[-1]
                 st = store.status(job_id)
@@ -66,15 +69,37 @@ def make_handler(store: JobStore, app_cfg: AppConfig):
                 return self._send(200, tr) if tr is not None else self._send(404, {"error": "trace 不存在或任务未完成"})
             return self._send(404, {"error": "未知路由"})
 
+        def _read_json(self):
+            try:
+                length = int(self.headers.get("Content-Length") or 0)
+                return json.loads(self.rfile.read(length).decode("utf-8") or "{}")
+            except Exception as e:
+                raise ValueError(f"请求体不是合法 JSON：{e}")
+
         def do_POST(self):
             path = urlparse(self.path).path
+            if path == "/api/v1/config":
+                try:
+                    payload = self._read_json()
+                except ValueError as e:
+                    return self._send(400, {"error": str(e)})
+                try:
+                    return self._send(200, save_config(payload.get("api_key"), payload.get("base_url"), payload.get("model")))
+                except ValueError as e:
+                    return self._send(400, {"error": str(e)})
+            if path == "/api/v1/config/test":
+                try:
+                    payload = self._read_json()
+                except ValueError as e:
+                    return self._send(400, {"error": str(e)})
+                result = test_connection(payload.get("api_key"), payload.get("base_url"), payload.get("model"))
+                return self._send(200 if result.get("ok") else 502, result)
             if path != "/api/v1/fill":
                 return self._send(404, {"error": "未知路由"})
             try:
-                length = int(self.headers.get("Content-Length") or 0)
-                payload = json.loads(self.rfile.read(length).decode("utf-8") or "{}")
-            except Exception as e:
-                return self._send(400, {"error": f"请求体不是合法 JSON：{e}"})
+                payload = self._read_json()
+            except ValueError as e:
+                return self._send(400, {"error": str(e)})
             if not isinstance(payload, dict) or ("document_url" not in payload and "document_text" not in payload):
                 return self._send(400, {"error": "入参必须含 document_url（+ slots_url）或 document_text（+ slots）"})
             if payload.get("sync"):

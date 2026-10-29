@@ -62,3 +62,31 @@ export async function fetchTrace(traceUrl: string): Promise<Trace | null> {
     return null
   }
 }
+
+export type ModelConfig = {
+  has_api_key: boolean
+  api_key_masked: string
+  base_url: string
+  model: string
+  is_bailian: boolean
+  mock: boolean
+  bailian_default_base_url: string
+  tier_suggestions: Record<string, string>
+}
+
+export async function getConfig(): Promise<ModelConfig> {
+  const { data } = await getJson<ModelConfig>('/api/v1/config')
+  return data
+}
+
+export async function saveConfig(body: { api_key?: string; base_url?: string; model?: string }): Promise<ModelConfig> {
+  return postJson('/api/v1/config', body)
+}
+
+export async function testConfig(body: { api_key?: string; base_url?: string; model?: string }): Promise<{ ok: boolean; model?: string; base_url?: string; latency_ms?: number; reply?: string; error?: string }> {
+  try {
+    return await postJson('/api/v1/config/test', body)
+  } catch (e) {
+    return { ok: false, error: String(e) }
+  }
+}

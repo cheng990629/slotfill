@@ -6,6 +6,7 @@ import { CaseBrowser } from './components/CaseBrowser'
 import { ValidationPanel } from './components/ValidationPanel'
 import { ArchitecturePanel } from './components/ArchitecturePanel'
 import { DesignPanel } from './components/DesignPanel'
+import { ModelPanel } from './components/ModelPanel'
 import { checkHealth } from './api'
 import './styles.css'
 
@@ -42,6 +43,7 @@ export default function App() {
         {tab === 'validation' && <ValidationPanel />}
         {tab === 'architecture' && <ArchitecturePanel />}
         {tab === 'design' && <DesignPanel />}
+        {tab === 'model' && <ModelPanel />}
       </main>
       <footer className="footer">
         <span>后端：slot-filling-backend（Python 标准库 HTTP 服务，默认 8000 端口）</span>
