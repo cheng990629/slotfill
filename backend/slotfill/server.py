@@ -100,8 +100,8 @@ def make_handler(store: JobStore, app_cfg: AppConfig):
                 payload = self._read_json()
             except ValueError as e:
                 return self._send(400, {"error": str(e)})
-            if not isinstance(payload, dict) or ("document_url" not in payload and "document_text" not in payload):
-                return self._send(400, {"error": "入参必须含 document_url（+ slots_url）或 document_text（+ slots）"})
+            if not isinstance(payload, dict) or ("document_url" not in payload and "document_text" not in payload and "document_base64" not in payload):
+                return self._send(400, {"error": "入参必须含 document_url（+ slots_url）、document_text（+ slots）或 document_base64（+ slots，上传文件用）"})
             if payload.get("sync"):
                 try:
                     result, trace = run_job_sync(payload, store, app_cfg)

@@ -56,6 +56,9 @@ export function ExtractPanel({ preset, onPresetUsed, externalLoad }: { preset: b
   const [slotsUrl, setSlotsUrl] = useState('')
   const [extractor, setExtractor] = useState<Extractor>('auto')
   const [formError, setFormError] = useState('')
+  // 上传的二进制文件（PDF/DOCX）：不经过文本框，直接把字节发给后端解析。
+  // 之前这里对所有文件都调 file.text()，PDF/DOCX 二进制会被当成文本，等于没传上去。
+  const [pendingFile, setPendingFile] = useState<{ name: string; base64: string; size: number } | null>(null)
   const job = useFillJob()
 
   // preset / 外部载入都走 useEffect，不在渲染里 setState，避免 StrictMode 下重复渲染。
@@ -76,8 +79,23 @@ export function ExtractPanel({ preset, onPresetUsed, externalLoad }: { preset: b
   }, [externalLoad])
 
   async function handleFile(file: File) {
-    const text = await file.text()
-    setDocText(text)
+    const lower = file.name.toLowerCase()
+    if (lower.endsWith('.txt') || lower.endsWith('.md')) {
+      // 纯文本：读成文本进文本框，老行为不变。
+      setDocText(await file.text())
+      setPendingFile(null)
+    } else {
+      // PDF/DOCX 是二进制：读成 base64 交给后端按字节解析，不再要求用户粘贴文本。
+      const buf = await file.arrayBuffer()
+      let binary = ''
+      const bytes = new Uint8Array(buf)
+      const CHUNK = 0x8000
+      for (let i = 0; i < bytes.length; i += CHUNK) {
+        binary += String.fromCharCode(...bytes.subarray(i, i + CHUNK))
+      }
+      setPendingFile({ name: file.name, base64: btoa(binary), size: file.size })
+      setDocText('')
+    }
     setInputMode('text')
   }
 
@@ -91,12 +109,20 @@ export function ExtractPanel({ preset, onPresetUsed, externalLoad }: { preset: b
         }
         void job.run({ document_url: docUrl.trim(), slots_url: slotsUrl.trim(), extractor })
       } else {
-        if (!docText.trim() || !slotsText.trim()) {
-          setFormError('请填写文档文本和槽位 JSON，或点“一键体验示例合同”。')
+        if (!slotsText.trim()) {
+          setFormError('请填写槽位 JSON。')
+          return
+        }
+        if (!docText.trim() && !pendingFile) {
+          setFormError('请粘贴文档文本或上传文件（PDF/DOCX 上传后直接解析，无需粘贴）。')
           return
         }
         const slots = JSON.parse(slotsText) as unknown
-        void job.run({ document_text: docText, slots, extractor })
+        if (pendingFile) {
+          void job.run({ document_base64: pendingFile.base64, document_filename: pendingFile.name, slots, extractor })
+        } else {
+          void job.run({ document_text: docText, slots, extractor })
+        }
       }
     } catch {
       setFormError('槽位 JSON 解析失败：请检查括号、逗号和引号。')
@@ -107,7 +133,7 @@ export function ExtractPanel({ preset, onPresetUsed, externalLoad }: { preset: b
     <section className="panel">
       <h2>提取</h2>
       <p className="panel-desc">
-        入参是文档 URL + 槽位 JSON URL（强约束），本地测试也支持直接粘贴文本和 JSON；
+        入参是文档 URL + 槽位 JSON URL（强约束），本地测试也支持直接粘贴文本和 JSON；上传 PDF/DOCX 会直接解析原文，无需粘贴；
         出参永远是一份结果 JSON 的 URL（非 SSE），本页轮询该 URL 直到完成。
       </p>
       <div className="tabs">
@@ -130,7 +156,8 @@ export function ExtractPanel({ preset, onPresetUsed, externalLoad }: { preset: b
         </div>
       )}
       <div className="form-row">
-        <label>上传文档<input type="file" accept=".txt,.md,.docx,.pdf" onChange={(e) => { const f = e.target.files?.[0]; if (f) void handleFile(f) }} /></label>
+        <label>上传文档<input type="file" accept=".txt,.md,.docx,.pdf" onChange={(e) => { const f = e.target.files?.[0]; if (f) void handleFile(f); e.target.value = '' }} /></label>
+        {pendingFile && <p className="note" aria-live="polite">已选择文件：{pendingFile.name}（{(pendingFile.size / 1024).toFixed(0)} KB），点“开始提取”直接解析，无需粘贴文本。</p>}
         <button className="ghost" onClick={() => { setDocText(SAMPLE_DOC); setSlotsText(SAMPLE_SLOTS); setInputMode('text') }}>一键体验示例合同</button>
       </div>
       <div className="mode-row" role="radiogroup" aria-label="提取模式">

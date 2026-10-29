@@ -64,6 +64,22 @@ class LLMConfig:
             concurrency=int(os.environ.get("LLM_CONCURRENCY", "4")),
         )
 
+    def is_usable(self) -> bool:
+        """是否真的能调模型：本地服务（localhost/私网 IP）可以不要 Key；
+        远端托管地址（百炼等）没有 Key 等于没配——调它只会干等到超时，
+        必须当成未配置，让 auto 退化为代码档，而不是假装有模型。"""
+        if not self.base_url or not self.model:
+            return False
+        if self.api_key:
+            return True
+        from urllib.parse import urlparse
+        host = (urlparse(self.base_url).hostname or "").lower()
+        if host in ("localhost", "::1") or host.startswith("127."):
+            return True
+        if host.startswith(("192.168.", "10.")) or any(host.startswith(f"172.{n}.") for n in range(16, 32)):
+            return True
+        return False
+
     def validate(self) -> None:
         if self.mock:
             return

@@ -120,17 +120,37 @@ def run_job_sync(
 ) -> tuple[dict, dict]:
     """同步跑一次 pipeline：URL 入参先取回，再按 inline/bytes 分流。"""
     extractor = payload.get("extractor", "auto")
-    # code 模式零 LLM：不要因为没配 .env 就拒收；其它模式在 pipeline 里按需建客户端
-    if llm is None and extractor in ("code",):
-        llm_client = None
+    # 不要在这里先建客户端：OpenAICompatClient 构造时会校验并在无模型时抛 500，
+    # 那样 auto 永远到不了流水线里“未配置 LLM 时退化为代码档”的分支（教师版已踩过同样的坑）。
+    # 只有真正配了模型（或 mock）时才建客户端；否则传 None，让流水线自己退化。
+    if llm is not None:
+        llm_client = llm
     else:
-        llm_client = llm or build_client(LLMConfig.from_env())
+        _cfg = LLMConfig.from_env()
+        llm_client = build_client(_cfg) if (_cfg.mock or _cfg.is_usable()) else None
     if "document_url" in payload:
         raw, path = fetch_url(payload["document_url"], app_cfg)
         slots_raw, _ = fetch_url(payload["slots_url"], app_cfg, max_bytes=1024 * 1024)
         slots_payload = json.loads(slots_raw.decode("utf-8"))
         result, trace = run_pipeline(
             document_bytes=raw, document_filename=path, slots_payload=slots_payload,
+            extractor=extractor, llm=llm_client,
+            chunk_chars=app_cfg.chunk_chars, chunk_overlap=app_cfg.chunk_overlap,
+            output_format=payload.get("llm_output_format", "yaml"), concurrency=int(payload.get("llm_concurrency", 4)),
+        )
+    elif "document_base64" in payload:
+        # 前端上传文件（PDF/DOCX）走这里：按字节解析原文，不再要求用户先把文件转成文本粘贴。
+        import base64 as _b64
+        import binascii as _binascii
+        try:
+            raw = _b64.b64decode(payload["document_base64"], validate=True)
+        except _binascii.Error:
+            raise ValueError("文件内容不是合法 base64")
+        if len(raw) > 5 * 1024 * 1024:
+            raise ValueError("文档超过 5M 上限")
+        result, trace = run_pipeline(
+            document_bytes=raw, document_filename=payload.get("document_filename", "document"),
+            slots_payload=payload.get("slots"),
             extractor=extractor, llm=llm_client,
             chunk_chars=app_cfg.chunk_chars, chunk_overlap=app_cfg.chunk_overlap,
             output_format=payload.get("llm_output_format", "yaml"), concurrency=int(payload.get("llm_concurrency", 4)),
@@ -143,7 +163,7 @@ def run_job_sync(
             output_format=payload.get("llm_output_format", "yaml"), concurrency=int(payload.get("llm_concurrency", 4)),
         )
     else:
-        raise ValueError("入参缺少 document_url 或 document_text，且 slots_url / slots 也要对应提供")
+        raise ValueError("入参缺少 document_url、document_text 或 document_base64，且 slots_url / slots 也要对应提供")
     return result, trace
 
 

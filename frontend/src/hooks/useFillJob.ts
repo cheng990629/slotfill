@@ -30,6 +30,8 @@ export function useFillJob() {
       document_url?: string
       slots_url?: string
       document_text?: string
+      document_base64?: string
+      document_filename?: string
       slots?: unknown
       extractor: Extractor
     }) => {
